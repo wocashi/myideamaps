@@ -1,0 +1,157 @@
+import { useState, useCallback } from 'react'
+import { v4 as uuidv4 } from 'uuid'
+import { loadState, saveState, loadApiKey } from './lib/storage'
+import { analyzeIdeas } from './lib/gemini'
+import type { AppState, Idea } from './types'
+import NetworkMap from './components/NetworkMap'
+import IdeaSidebar from './components/IdeaSidebar'
+import SettingsPanel from './components/SettingsPanel'
+
+export default function App() {
+  const [state, setState] = useState<AppState>(loadState)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [error, setError] = useState('')
+  const [showSettings, setShowSettings] = useState(false)
+
+  const persist = useCallback((next: AppState) => {
+    setState(next)
+    saveState(next)
+  }, [])
+
+  const addIdea = useCallback((text: string) => {
+    const idea: Idea = { id: uuidv4(), text, timestamp: new Date().toISOString() }
+    persist({ ...state, ideas: [...state.ideas, idea] })
+  }, [state, persist])
+
+  const deleteIdea = useCallback((id: string) => {
+    persist({ ...state, ideas: state.ideas.filter(i => i.id !== id) })
+  }, [state, persist])
+
+  const runAnalysis = useCallback(async () => {
+    const apiKey = loadApiKey()
+    if (!apiKey) { setError('設定からGemini APIキーを入力してください'); return }
+    if (state.ideas.length < 2) { setError('2件以上のアイデアが必要です'); return }
+    setAnalyzing(true)
+    setError('')
+    try {
+      const analysis = await analyzeIdeas(state.ideas, state.topic, apiKey)
+      persist({ ...state, analysis })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '分析に失敗しました')
+    } finally {
+      setAnalyzing(false)
+    }
+  }, [state, persist])
+
+  const { topic, ideas, analysis } = state
+
+  return (
+    <div className="h-screen flex flex-col bg-surface overflow-hidden">
+      {/* ── Header ── */}
+      <header className="flex-shrink-0 bg-white border-b border-border px-5 h-13 flex items-center gap-4 shadow-sm" style={{ height: 52 }}>
+        <div className="flex items-center gap-2 mr-2">
+          <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shadow-sm">
+            <span className="text-white text-xs font-bold">IM</span>
+          </div>
+          <span className="font-bold text-ink tracking-tight text-sm">IdeaMap</span>
+        </div>
+
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          <span className="text-muted text-sm">|</span>
+          <span className="text-sm text-slate-600 truncate">{topic}</span>
+        </div>
+
+        {error && (
+          <span className="text-xs text-red-500 bg-red-50 border border-red-200 px-2 py-1 rounded-lg">{error}</span>
+        )}
+
+        {/* stats */}
+        {ideas.length > 0 && (
+          <div className="hidden sm:flex items-center gap-4 text-xs text-muted">
+            <span><b className="text-ink">{ideas.length}</b> アイデア</span>
+            {analysis && <span><b className="text-primary">{analysis.clusters.length}</b> クラスター</span>}
+          </div>
+        )}
+
+        <button
+          onClick={runAnalysis}
+          disabled={analyzing || ideas.length < 2}
+          className="btn-primary"
+        >
+          {analyzing ? (
+            <><svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>整理中…</>
+          ) : (
+            <><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>AI で整理</>
+          )}
+        </button>
+
+        <button onClick={() => setShowSettings(true)} className="btn-ghost p-2" title="設定">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </button>
+      </header>
+
+      {/* ── Body ── */}
+      <div className="flex flex-1 min-h-0">
+        {/* Left sidebar */}
+        <IdeaSidebar
+          ideas={ideas}
+          analysis={analysis}
+          onAdd={addIdea}
+          onDelete={deleteIdea}
+          onClearAll={() => persist({ ...state, ideas: [], analysis: null })}
+        />
+
+        {/* Island map */}
+        <main className="flex-1 flex flex-col min-w-0 p-4 gap-3">
+          <div className="flex-1 min-h-0">
+            <NetworkMap ideas={ideas} analysis={analysis} />
+          </div>
+
+          {/* AI summary strip */}
+          {analysis && (
+            <div className="flex-shrink-0 bg-white rounded-xl border border-border px-4 py-3 shadow-card">
+              <div className="flex items-start gap-3">
+                <div className="w-5 h-5 rounded bg-primary flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-primary mb-1">AI インサイト</p>
+                  <p className="text-sm text-slate-700 leading-relaxed">{analysis.summary}</p>
+                  {analysis.nextActions.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {analysis.nextActions.map((a, i) => (
+                        <span key={i} className="text-xs bg-primary-light text-primary px-2 py-1 rounded-lg">→ {a}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* Settings modal */}
+      {showSettings && (
+        <SettingsPanel
+          topic={topic}
+          ideaCount={ideas.length}
+          onUpdateTopic={t => persist({ ...state, topic: t })}
+          onClearData={() => persist({ ...state, ideas: [], analysis: null })}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
+    </div>
+  )
+}
