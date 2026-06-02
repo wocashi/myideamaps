@@ -4,15 +4,15 @@ export default {
   theme: {
     extend: {
       colors: {
-        sea: '#e8f4fd',
-        'sea-deep': '#cce3f8',
-        primary: '#2563eb',
-        'primary-light': '#eff6ff',
-        surface: '#f8fafc',
+        primary: '#7c3aed',
+        'primary-light': '#f5f3ff',
+        coral: '#ff6b6b',
+        mint: '#06d6a0',
+        surface: '#fafaff',
         card: '#ffffff',
-        border: '#e2e8f0',
-        muted: '#94a3b8',
-        ink: '#0f172a',
+        border: '#e5e7ff',
+        muted: '#9ca3af',
+        ink: '#1e1b4b',
       },
       fontFamily: {
         sans: ['"Noto Sans JP"', 'system-ui', 'sans-serif'],

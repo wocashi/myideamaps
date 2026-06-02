@@ -4,6 +4,8 @@ export interface Idea {
   id: string
   text: string
   timestamp: string
+  viewCount?: number
+  lastViewed?: string
 }
 
 export interface Cluster {

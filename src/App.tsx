@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { loadState, saveState, loadApiKey } from './lib/storage'
-import { analyzeIdeas } from './lib/gemini'
+import { loadState, saveState } from './lib/storage'
+import { analyzeIdeasLocal } from './lib/localAnalysis'
 import type { AppState, Idea } from './types'
 import NetworkMap from './components/NetworkMap'
 import IdeaSidebar from './components/IdeaSidebar'
@@ -27,14 +27,21 @@ export default function App() {
     persist({ ...state, ideas: state.ideas.filter(i => i.id !== id) })
   }, [state, persist])
 
-  const runAnalysis = useCallback(async () => {
-    const apiKey = loadApiKey()
-    if (!apiKey) { setError('設定からGemini APIキーを入力してください'); return }
+  const touchIdea = useCallback((id: string) => {
+    const ideas = state.ideas.map(idea =>
+      idea.id === id
+        ? { ...idea, viewCount: (idea.viewCount ?? 0) + 1, lastViewed: new Date().toISOString() }
+        : idea
+    )
+    persist({ ...state, ideas })
+  }, [state, persist])
+
+  const runAnalysis = useCallback(() => {
     if (state.ideas.length < 2) { setError('2件以上のアイデアが必要です'); return }
     setAnalyzing(true)
     setError('')
     try {
-      const analysis = await analyzeIdeas(state.ideas, state.topic, apiKey)
+      const analysis = analyzeIdeasLocal(state.ideas)
       persist({ ...state, analysis })
     } catch (e) {
       setError(e instanceof Error ? e.message : '分析に失敗しました')
@@ -48,28 +55,30 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col bg-surface overflow-hidden">
       {/* ── Header ── */}
-      <header className="flex-shrink-0 bg-white border-b border-border px-5 h-13 flex items-center gap-4 shadow-sm" style={{ height: 52 }}>
+      <header className="flex-shrink-0 bg-white border-b border-border px-5 flex items-center gap-4" style={{ height: 56 }}>
         <div className="flex items-center gap-2 mr-2">
-          <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shadow-sm">
-            <span className="text-white text-xs font-bold">IM</span>
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center shadow-md"
+            style={{ background: 'linear-gradient(135deg,#7c3aed,#ff6b6b)' }}>
+            <span className="text-white text-xs font-black">IM</span>
           </div>
-          <span className="font-bold text-ink tracking-tight text-sm">IdeaMap</span>
+          <span className="font-black text-ink tracking-tight">IdeaMap</span>
         </div>
 
-        <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          <span className="text-muted text-sm">|</span>
-          <span className="text-sm text-slate-600 truncate">{topic}</span>
+        <div className="flex-1 min-w-0">
+          <span className="text-sm font-medium truncate"
+            style={{ background: 'linear-gradient(90deg,#7c3aed,#ff6b6b)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            {topic}
+          </span>
         </div>
 
         {error && (
           <span className="text-xs text-red-500 bg-red-50 border border-red-200 px-2 py-1 rounded-lg">{error}</span>
         )}
 
-        {/* stats */}
         {ideas.length > 0 && (
-          <div className="hidden sm:flex items-center gap-4 text-xs text-muted">
-            <span><b className="text-ink">{ideas.length}</b> アイデア</span>
-            {analysis && <span><b className="text-primary">{analysis.clusters.length}</b> クラスター</span>}
+          <div className="hidden sm:flex items-center gap-3 text-xs">
+            <span className="bg-primary-light text-primary font-bold px-2.5 py-1 rounded-full">{ideas.length} ideas</span>
+            {analysis && <span className="bg-pink-50 text-pink-600 font-bold px-2.5 py-1 rounded-full">{analysis.clusters.length} clusters</span>}
           </div>
         )}
 
@@ -113,25 +122,30 @@ export default function App() {
         {/* Island map */}
         <main className="flex-1 flex flex-col min-w-0 p-4 gap-3">
           <div className="flex-1 min-h-0">
-            <NetworkMap ideas={ideas} analysis={analysis} />
+            <NetworkMap ideas={ideas} analysis={analysis} onTouch={touchIdea} />
           </div>
 
           {/* AI summary strip */}
           {analysis && (
-            <div className="flex-shrink-0 bg-white rounded-xl border border-border px-4 py-3 shadow-card">
+            <div className="flex-shrink-0 rounded-2xl px-4 py-3 border border-purple-100"
+              style={{ background: 'linear-gradient(135deg,#faf5ff 0%,#fff0f5 100%)' }}>
               <div className="flex items-start gap-3">
-                <div className="w-5 h-5 rounded bg-primary flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 shadow-md"
+                  style={{ background: 'linear-gradient(135deg,#7c3aed,#ff6b6b)' }}>
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-primary mb-1">AI インサイト</p>
+                  <p className="text-xs font-black text-primary mb-1 tracking-wide uppercase">✦ Insight</p>
                   <p className="text-sm text-slate-700 leading-relaxed">{analysis.summary}</p>
                   {analysis.nextActions.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-2">
                       {analysis.nextActions.map((a, i) => (
-                        <span key={i} className="text-xs bg-primary-light text-primary px-2 py-1 rounded-lg">→ {a}</span>
+                        <span key={i} className="text-xs font-medium px-3 py-1 rounded-full text-white shadow-sm"
+                          style={{ background: ['#7c3aed','#ff6b6b','#06d6a0','#ffd166','#118ab2'][i % 5] }}>
+                          → {a}
+                        </span>
                       ))}
                     </div>
                   )}
